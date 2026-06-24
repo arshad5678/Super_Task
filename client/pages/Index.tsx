@@ -378,36 +378,38 @@ export default function Index() {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Weather Widget */}
-              <div className="lg:col-span-1 bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl p-6 space-y-4">
-                <div className="flex justify-between items-start">
+              <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
+                <div className="flex items-center justify-between mb-4">
                   <div>
-                    <p className="text-blue-100 text-sm">Temperature</p>
-                    <p className="text-4xl font-bold">32°C</p>
+                    <p className="text-slate-400 text-sm">Weather</p>
+                    <p className="text-3xl font-bold text-white">32°C</p>
                   </div>
-                  <Cloud className="w-8 h-8 text-blue-100" />
+                  <div className="text-5xl">☀️</div>
                 </div>
               </div>
 
-              {/* Water Widget */}
-              <div className="lg:col-span-1 bg-gradient-to-br from-cyan-600 to-cyan-700 rounded-xl p-6 space-y-4">
-                <div className="flex justify-between items-start">
+              {/* Humidity Widget */}
+              <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
+                <div className="flex items-center justify-between mb-4">
                   <div>
-                    <p className="text-cyan-100 text-sm">Humidity</p>
-                    <p className="text-4xl font-bold">65%</p>
+                    <p className="text-slate-400 text-sm">Humidity</p>
+                    <p className="text-3xl font-bold text-white">65%</p>
                   </div>
-                  <Droplets className="w-8 h-8 text-cyan-100" />
+                  <div className="text-5xl">💧</div>
                 </div>
               </div>
 
               {/* News Widget */}
               <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
-                <div>
-                  <p className="text-slate-400 text-xs font-semibold mb-2">NEWS</p>
-                  <p className="text-slate-300 text-sm leading-relaxed">
-                    Tech giants avoid seen yet in
-                    modern of digital world
-                  </p>
-                  <p className="text-slate-500 text-xs mt-3">View more</p>
+                <div className="flex gap-3">
+                  <div className="text-4xl">📝</div>
+                  <div>
+                    <p className="text-slate-400 text-xs font-semibold mb-2">NEWS</p>
+                    <p className="text-slate-300 text-sm leading-relaxed">
+                      Tech giants avoid seen yet in
+                      modern of digital world
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -421,26 +423,31 @@ export default function Index() {
                 </div>
               </div>
 
-              {/* Movie Widget */}
-              <div className="lg:col-span-2 bg-slate-800 rounded-xl overflow-hidden border border-slate-700">
-                <div className="bg-gradient-to-r from-red-600 to-orange-600 h-32 flex items-center justify-center">
-                  <div className="w-12 h-12 rounded-full bg-slate-900/50 flex items-center justify-center">
-                    <svg className="w-6 h-6 text-white fill-current" viewBox="0 0 24 24">
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
+              {/* Popcorn Widget - Bubble Style */}
+              <div className="bg-gradient-to-br from-pink-600 to-pink-700 rounded-xl p-6">
+                <div className="flex items-center justify-between h-full">
+                  <div>
+                    <p className="text-pink-100 text-sm font-semibold">Popcorn</p>
+                    <p className="text-2xl font-bold text-white mt-1">Movie Time</p>
                   </div>
+                  <div className="text-5xl">🍿</div>
+                </div>
+              </div>
+
+              {/* Movie Widget */}
+              <div className="lg:col-span-1 bg-slate-800 rounded-xl overflow-hidden border border-slate-700">
+                <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-6 flex items-center justify-center h-32">
+                  <div className="text-5xl">🎬</div>
                 </div>
                 <div className="p-4">
-                  <p className="font-semibold text-white mb-1">Movies</p>
-                  <div className="flex items-center justify-between text-slate-400 text-sm">
-                    <span>Action & Thriller</span>
-                    <div className="flex gap-1">
-                      {[...Array(5)].map((_, i) => (
-                        <span key={i} className="text-yellow-400">★</span>
-                      ))}
-                    </div>
-                    <span>4.8 K</span>
+                  <p className="font-semibold text-white mb-2">Movies</p>
+                  <p className="text-slate-400 text-sm">Action & Thriller</p>
+                  <div className="flex gap-1 mt-2">
+                    {[...Array(5)].map((_, i) => (
+                      <span key={i} className="text-yellow-400">★</span>
+                    ))}
                   </div>
+                  <p className="text-slate-500 text-xs mt-2">4.8 K</p>
                 </div>
               </div>
             </div>
