@@ -58,7 +58,7 @@ export default function Index() {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 text-white">
+    <div className="min-h-screen bg-black text-white">
       {/* Step Indicators */}
       <div className="fixed top-6 right-6 flex items-center gap-2 text-sm">
         <span className="text-cyan-400 font-semibold">Step {currentStep + 1} of 4</span>
