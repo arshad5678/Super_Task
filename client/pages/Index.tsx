@@ -128,10 +128,6 @@ export default function Index() {
               ))}
             </div>
 
-            {/* Decorative Elements */}
-            <div className="hidden lg:block pt-8">
-              <div className="w-32 h-32 border border-cyan-400/20 rounded-lg absolute bottom-20 left-20 animate-pulse" />
-            </div>
           </div>
 
           {/* Right Form Section */}
