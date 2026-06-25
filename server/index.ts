@@ -2,6 +2,9 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { handleDemo } from "./routes/demo";
+import { handleWeather } from "./routes/weather";
+import { handleNews } from "./routes/news";
+import { handleRecommendations, handleSearchMovies } from "./routes/movies";
 
 export function createServer() {
   const app = express();
@@ -18,6 +21,10 @@ export function createServer() {
   });
 
   app.get("/api/demo", handleDemo);
+  app.get("/api/weather", handleWeather);
+  app.get("/api/news", handleNews);
+  app.get("/api/movies/recommendations", handleRecommendations);
+  app.get("/api/movies/search", handleSearchMovies);
 
   return app;
 }

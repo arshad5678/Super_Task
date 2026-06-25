@@ -1,17 +1,403 @@
-import { useState } from "react";
-import { ChevronRight, Eye, EyeOff, ArrowRight } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { ChevronRight, Eye, EyeOff, ArrowRight, Star, Play, Pause, RotateCcw } from "lucide-react";
+import { saveUserData, getUserData, saveCategories, getCategories } from "@/lib/storage";
+import { fetchWeather, getWeatherEmoji } from "@/lib/weather";
+import {
+  fetchEntertainmentNews,
+  getCachedNews,
+  saveNewsToCache,
+  formatRelativeTime,
+  type NewsArticle,
+} from "@/services/newsApi";
+import {
+  fetchMovieRecommendations,
+  getCachedRecommendations,
+  saveRecommendationsToCache,
+  getPosterUrl,
+  type Movie,
+} from "@/services/movieApi";
+import { Link } from "react-router-dom";
+
+export interface Note {
+  id: string;
+  text: string;
+  createdAt: number;
+}
 
 export default function Index() {
-  const [currentStep, setCurrentStep] = useState(0);
-  const [formData, setFormData] = useState({
+  const [currentStep, setCurrentStep] = useState(() => {
+    const savedStep = localStorage.getItem("superapp_current_step");
+    return savedStep ? Number(savedStep) : 0;
+  });
+  const [formData, setFormData] = useState(() => {
+    const savedUser = getUserData();
+    const savedCats = getCategories();
+    return {
+      fullName: savedUser?.fullName || "",
+      username: savedUser?.username || "",
+      email: savedUser?.email || "",
+      mobile: savedUser?.mobile || "",
+      password: savedUser?.password || "",
+      categories: savedCats || [],
+    };
+  });
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Form Validation States
+  const [errors, setErrors] = useState({
     fullName: "",
     username: "",
     email: "",
     mobile: "",
     password: "",
-    categories: [] as string[],
   });
-  const [showPassword, setShowPassword] = useState(false);
+
+  const [touched, setTouched] = useState({
+    fullName: false,
+    username: false,
+    email: false,
+    mobile: false,
+    password: false,
+  });
+
+  const [agreeToTerms, setAgreeToTerms] = useState(false);
+
+  const handleBlur = (field: keyof typeof touched) => {
+    setTouched((prev) => ({ ...prev, [field]: true }));
+  };
+
+  useEffect(() => {
+    const errs = {
+      fullName: "",
+      username: "",
+      email: "",
+      mobile: "",
+      password: "",
+    };
+
+    // Full Name: required, minimum 3 characters
+    if (formData.fullName.trim() === "") {
+      errs.fullName = "Full Name is required";
+    } else if (formData.fullName.trim().length < 3) {
+      errs.fullName = "Full Name must be at least 3 characters";
+    }
+
+    // Username: required, no spaces allowed
+    if (formData.username.trim() === "") {
+      errs.username = "Username is required";
+    } else if (/\s/.test(formData.username)) {
+      errs.username = "Username cannot contain spaces";
+    }
+
+    // Email: valid email format
+    if (formData.email.trim() === "") {
+      errs.email = "Email is required";
+    } else {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(formData.email)) {
+        errs.email = "Please enter a valid email address";
+      }
+    }
+
+    // Mobile Number: exactly 10 digits
+    if (formData.mobile.trim() === "") {
+      errs.mobile = "Mobile Number is required";
+    } else {
+      const digitsOnly = formData.mobile.replace(/\D/g, "");
+      if (digitsOnly.length !== 10) {
+        errs.mobile = "Mobile Number must be exactly 10 digits";
+      }
+    }
+
+    // Password: minimum 8 characters
+    if (formData.password === "") {
+      errs.password = "Password is required";
+    } else if (formData.password.length < 8) {
+      errs.password = "Password must be at least 8 characters";
+    }
+
+    setErrors(errs);
+  }, [formData]);
+
+  const isFormValid =
+    !errors.fullName &&
+    !errors.username &&
+    !errors.email &&
+    !errors.mobile &&
+    !errors.password &&
+    agreeToTerms;
+
+  useEffect(() => {
+    localStorage.setItem("superapp_current_step", String(currentStep));
+  }, [currentStep]);
+
+  // Enforce step validation to prevent accessing later steps without required data
+  useEffect(() => {
+    if (currentStep > 0 && (!formData.fullName || !formData.username || !formData.email || !formData.mobile || !formData.password)) {
+      setCurrentStep(0);
+    } else if (currentStep > 1 && formData.categories.length === 0) {
+      setCurrentStep(1);
+    }
+  }, [currentStep, formData]);
+
+  // Weather widget state and integration
+  const [weatherCity, setWeatherCity] = useState(() => {
+    return localStorage.getItem("superapp_weather_city") || "London";
+  });
+  const [searchCity, setSearchCity] = useState("");
+  const [weatherData, setWeatherData] = useState<any>(null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [weatherError, setWeatherError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (currentStep !== 3) return;
+
+    let isMounted = true;
+    const loadWeather = async () => {
+      setWeatherLoading(true);
+      setWeatherError(null);
+      try {
+        const data = await fetchWeather(weatherCity);
+        if (isMounted) {
+          setWeatherData(data);
+          localStorage.setItem("superapp_weather_city", weatherCity);
+        }
+      } catch (err: any) {
+        if (isMounted) {
+          setWeatherError(err.message || "Failed to load weather");
+        }
+      } finally {
+        if (isMounted) {
+          setWeatherLoading(false);
+        }
+      }
+    };
+
+    loadWeather();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [weatherCity, currentStep]);
+
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchCity.trim()) {
+      setWeatherCity(searchCity.trim());
+      setSearchCity("");
+    }
+  };
+
+  // Entertainment News widget state and integration
+  const [news, setNews] = useState<NewsArticle[]>(() => getCachedNews());
+  const [newsLoading, setNewsLoading] = useState(false);
+  const [newsError, setNewsError] = useState<string | null>(null);
+
+  const loadNews = useCallback(async (showLoading = false) => {
+    if (showLoading) setNewsLoading(true);
+    setNewsError(null);
+    try {
+      const articles = await fetchEntertainmentNews();
+      setNews(articles);
+      saveNewsToCache(articles);
+    } catch (err: any) {
+      setNewsError(err.message || "Failed to load entertainment news");
+    } finally {
+      if (showLoading) setNewsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentStep !== 3) return;
+
+    const cache = getCachedNews();
+    const shouldShowLoading = cache.length === 0;
+
+    loadNews(shouldShowLoading);
+
+    // Automatically refresh news every 10 minutes
+    const interval = setInterval(() => {
+      loadNews(false);
+    }, 10 * 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [currentStep, loadNews]);
+
+  // Movie Recommendations widget state and integration
+  const [recommendationsByCategory, setRecommendationsByCategory] = useState<Record<string, Movie[]>>(() => getCachedRecommendations() as any);
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+  const [recLoading, setRecLoading] = useState(false);
+  const [recError, setRecError] = useState<string | null>(null);
+
+  // Sync active category with selected categories
+  useEffect(() => {
+    if (formData.categories.length > 0) {
+      if (!activeCategory || !formData.categories.includes(activeCategory)) {
+        setActiveCategory(formData.categories[0]);
+      }
+    } else {
+      setActiveCategory(null);
+    }
+  }, [formData.categories, activeCategory]);
+
+  const loadRecommendations = useCallback(async (showLoading = false) => {
+    if (showLoading) setRecLoading(true);
+    setRecError(null);
+    try {
+      const resultsMap: Record<string, Movie[]> = {};
+      await Promise.all(
+        formData.categories.map(async (catId) => {
+          const res = await fetchMovieRecommendations([catId]);
+          resultsMap[catId] = res;
+        })
+      );
+      setRecommendationsByCategory(resultsMap);
+      saveRecommendationsToCache(resultsMap);
+    } catch (err: any) {
+      setRecError(err.message || "Failed to load movie recommendations");
+    } finally {
+      if (showLoading) setRecLoading(false);
+    }
+  }, [formData.categories]);
+
+  useEffect(() => {
+    if (currentStep !== 3) return;
+
+    const cache = getCachedRecommendations();
+    const shouldShowLoading = Object.keys(cache).length === 0;
+
+    loadRecommendations(shouldShowLoading);
+  }, [currentStep, loadRecommendations]);
+
+  // Pomodoro Timer State
+  const [timeLeft, setTimeLeft] = useState(() => {
+    const savedTime = localStorage.getItem("superapp_pomodoro_time_left");
+    const savedRunning = localStorage.getItem("superapp_pomodoro_is_running") === "true";
+    const savedLastUpdated = localStorage.getItem("superapp_pomodoro_last_updated");
+    
+    const defaultTime = 25 * 60; // 1500 seconds
+    
+    if (savedTime !== null) {
+      const parsedTime = Number(savedTime);
+      if (savedRunning && savedLastUpdated) {
+        const elapsed = Math.floor((Date.now() - Number(savedLastUpdated)) / 1000);
+        const newTime = Math.max(0, parsedTime - elapsed);
+        return newTime;
+      }
+      return parsedTime;
+    }
+    return defaultTime;
+  });
+
+  const [isRunning, setIsRunning] = useState(() => {
+    const savedTime = localStorage.getItem("superapp_pomodoro_time_left");
+    const savedRunning = localStorage.getItem("superapp_pomodoro_is_running") === "true";
+    const savedLastUpdated = localStorage.getItem("superapp_pomodoro_last_updated");
+    
+    if (savedRunning && savedTime !== null && savedLastUpdated) {
+      const parsedTime = Number(savedTime);
+      const elapsed = Math.floor((Date.now() - Number(savedLastUpdated)) / 1000);
+      if (parsedTime - elapsed <= 0) {
+        return false;
+      }
+      return true;
+    }
+    return false;
+  });
+
+  // Persist timer state to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem("superapp_pomodoro_time_left", String(timeLeft));
+    localStorage.setItem("superapp_pomodoro_is_running", String(isRunning));
+    localStorage.setItem("superapp_pomodoro_last_updated", String(Date.now()));
+  }, [timeLeft, isRunning]);
+
+  // Timer countdown effect
+  useEffect(() => {
+    if (!isRunning) return;
+
+    const interval = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          setIsRunning(false);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isRunning]);
+
+  const resetTimer = useCallback(() => {
+    setIsRunning(false);
+    setTimeLeft(25 * 60);
+    localStorage.setItem("superapp_pomodoro_time_left", String(25 * 60));
+    localStorage.setItem("superapp_pomodoro_is_running", "false");
+    localStorage.setItem("superapp_pomodoro_last_updated", String(Date.now()));
+  }, []);
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  // Notes State & Handlers
+  const [notes, setNotes] = useState<Note[]>(() => {
+    try {
+      const saved = localStorage.getItem("superapp_notes");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [noteText, setNoteText] = useState("");
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+
+  // Auto-save notes to localStorage
+  useEffect(() => {
+    localStorage.setItem("superapp_notes", JSON.stringify(notes));
+  }, [notes]);
+
+  const handleCreateNote = useCallback(() => {
+    setNoteText("");
+    setEditingNoteId("new");
+  }, []);
+
+  const handleEditNote = useCallback((note: Note) => {
+    setNoteText(note.text);
+    setEditingNoteId(note.id);
+  }, []);
+
+  const handleDeleteNote = useCallback((id: string) => {
+    setNotes((prev) => prev.filter((n) => n.id !== id));
+  }, []);
+
+  const handleSaveNote = useCallback(() => {
+    if (!noteText.trim()) return;
+    if (noteText.length > 150) return;
+
+    if (editingNoteId === "new") {
+      const newNote: Note = {
+        id: Date.now().toString(),
+        text: noteText.trim(),
+        createdAt: Date.now(),
+      };
+      setNotes((prev) => [newNote, ...prev]);
+    } else if (editingNoteId) {
+      setNotes((prev) =>
+        prev.map((n) => (n.id === editingNoteId ? { ...n, text: noteText.trim() } : n))
+      );
+    }
+    setEditingNoteId(null);
+    setNoteText("");
+  }, [noteText, editingNoteId]);
+
+  const handleCancelNote = useCallback(() => {
+    setEditingNoteId(null);
+    setNoteText("");
+  }, []);
 
   const categories = [
     { id: "action", label: "Action", icon: "🔥", color: "from-red-500 via-orange-500 to-yellow-400", darkColor: "from-red-600 to-orange-700" },
@@ -27,17 +413,28 @@ export default function Index() {
   ];
 
   const toggleCategory = (id: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      categories: prev.categories.includes(id)
+    setFormData((prev) => {
+      const newCategories = prev.categories.includes(id)
         ? prev.categories.filter((c) => c !== id)
-        : [...prev.categories, id],
-    }));
+        : [...prev.categories, id];
+      saveCategories(newCategories);
+      return {
+        ...prev,
+        categories: newCategories,
+      };
+    });
   };
 
   const handleSignUp = (e: React.FormEvent) => {
     e.preventDefault();
     if (formData.fullName && formData.username && formData.email && formData.mobile && formData.password) {
+      saveUserData({
+        fullName: formData.fullName,
+        username: formData.username,
+        email: formData.email,
+        mobile: formData.mobile,
+        password: formData.password,
+      });
       setCurrentStep(1);
     }
   };
@@ -151,9 +548,17 @@ export default function Index() {
                       placeholder="John Doe"
                       value={formData.fullName}
                       onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                      className="w-full px-4 py-3 rounded-lg bg-slate-900/50 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 transition-all backdrop-blur-sm"
+                      onBlur={() => handleBlur("fullName")}
+                      className={`w-full px-4 py-3 rounded-lg bg-slate-900/50 border text-white placeholder-slate-500 focus:outline-none transition-all backdrop-blur-sm ${
+                        touched.fullName && errors.fullName
+                          ? "border-red-500 focus:border-red-500 focus:ring-1 focus:ring-red-500/50"
+                          : "border-slate-700 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50"
+                      }`}
                       required
                     />
+                    {touched.fullName && errors.fullName && (
+                      <p className="text-red-400 text-xs mt-1.5 font-medium">{errors.fullName}</p>
+                    )}
                   </div>
                 </div>
 
@@ -165,9 +570,17 @@ export default function Index() {
                     placeholder="johndoe123"
                     value={formData.username}
                     onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                    className="w-full px-4 py-3 rounded-lg bg-slate-900/50 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 transition-all backdrop-blur-sm"
+                    onBlur={() => handleBlur("username")}
+                    className={`w-full px-4 py-3 rounded-lg bg-slate-900/50 border text-white placeholder-slate-500 focus:outline-none transition-all backdrop-blur-sm ${
+                      touched.username && errors.username
+                        ? "border-red-500 focus:border-red-500 focus:ring-1 focus:ring-red-500/50"
+                        : "border-slate-700 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50"
+                    }`}
                     required
                   />
+                  {touched.username && errors.username && (
+                    <p className="text-red-400 text-xs mt-1.5 font-medium">{errors.username}</p>
+                  )}
                 </div>
 
                 {/* Email */}
@@ -178,9 +591,17 @@ export default function Index() {
                     placeholder="john@example.com"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    className="w-full px-4 py-3 rounded-lg bg-slate-900/50 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 transition-all backdrop-blur-sm"
+                    onBlur={() => handleBlur("email")}
+                    className={`w-full px-4 py-3 rounded-lg bg-slate-900/50 border text-white placeholder-slate-500 focus:outline-none transition-all backdrop-blur-sm ${
+                      touched.email && errors.email
+                        ? "border-red-500 focus:border-red-500 focus:ring-1 focus:ring-red-500/50"
+                        : "border-slate-700 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50"
+                    }`}
                     required
                   />
+                  {touched.email && errors.email && (
+                    <p className="text-red-400 text-xs mt-1.5 font-medium">{errors.email}</p>
+                  )}
                 </div>
 
                 {/* Mobile */}
@@ -191,9 +612,17 @@ export default function Index() {
                     placeholder="+1 (555) 000-0000"
                     value={formData.mobile}
                     onChange={(e) => setFormData({ ...formData, mobile: e.target.value })}
-                    className="w-full px-4 py-3 rounded-lg bg-slate-900/50 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 transition-all backdrop-blur-sm"
+                    onBlur={() => handleBlur("mobile")}
+                    className={`w-full px-4 py-3 rounded-lg bg-slate-900/50 border text-white placeholder-slate-500 focus:outline-none transition-all backdrop-blur-sm ${
+                      touched.mobile && errors.mobile
+                        ? "border-red-500 focus:border-red-500 focus:ring-1 focus:ring-red-500/50"
+                        : "border-slate-700 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50"
+                    }`}
                     required
                   />
+                  {touched.mobile && errors.mobile && (
+                    <p className="text-red-400 text-xs mt-1.5 font-medium">{errors.mobile}</p>
+                  )}
                 </div>
 
                 {/* Password */}
@@ -205,7 +634,12 @@ export default function Index() {
                       placeholder="••••••••••"
                       value={formData.password}
                       onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                      className="w-full px-4 py-3 rounded-lg bg-slate-900/50 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50 transition-all backdrop-blur-sm"
+                      onBlur={() => handleBlur("password")}
+                      className={`w-full px-4 py-3 rounded-lg bg-slate-900/50 border text-white placeholder-slate-500 focus:outline-none transition-all backdrop-blur-sm ${
+                        touched.password && errors.password
+                          ? "border-red-500 focus:border-red-500 focus:ring-1 focus:ring-red-500/50"
+                          : "border-slate-700 focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/50"
+                      }`}
                       required
                     />
                     <button
@@ -216,6 +650,9 @@ export default function Index() {
                       {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
                   </div>
+                  {touched.password && errors.password && (
+                    <p className="text-red-400 text-xs mt-1.5 font-medium">{errors.password}</p>
+                  )}
                 </div>
 
                 {/* Terms */}
@@ -223,6 +660,8 @@ export default function Index() {
                   <input
                     type="checkbox"
                     id="terms"
+                    checked={agreeToTerms}
+                    onChange={(e) => setAgreeToTerms(e.target.checked)}
                     className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-cyan-400 focus:ring-cyan-400 cursor-pointer"
                     required
                   />
@@ -234,7 +673,8 @@ export default function Index() {
                 {/* Sign Up Button */}
                 <button
                   type="submit"
-                  className="w-full py-3 mt-6 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 text-black font-bold uppercase tracking-wider hover:from-cyan-300 hover:to-blue-400 transition-all transform hover:scale-105 shadow-lg shadow-cyan-400/30"
+                  disabled={!isFormValid}
+                  className="w-full py-3 mt-6 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 text-black font-bold uppercase tracking-wider hover:from-cyan-300 hover:to-blue-400 transition-all transform hover:scale-105 shadow-lg shadow-cyan-400/30 disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none"
                 >
                   SIGN UP
                 </button>
@@ -289,7 +729,13 @@ export default function Index() {
             </div>
 
             {/* Continue Button */}
-            <div className="flex justify-end">
+            <div className="flex justify-between items-center">
+              <button
+                onClick={() => setCurrentStep(0)}
+                className="px-8 py-4 rounded-lg border-2 border-slate-700 text-white font-bold uppercase tracking-wider hover:border-slate-600 hover:bg-slate-900/50 transition-all transform hover:scale-105"
+              >
+                BACK
+              </button>
               <button
                 onClick={handleCategoriesNext}
                 disabled={formData.categories.length === 0}
@@ -354,12 +800,20 @@ export default function Index() {
             </div>
 
             {/* Continue Button */}
-            <button
-              onClick={handleProfileNext}
-              className="w-full py-4 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 text-black font-bold uppercase tracking-wider hover:from-cyan-300 hover:to-blue-400 transition-all transform hover:scale-105 shadow-lg shadow-cyan-400/30"
-            >
-              CONTINUE TO DASHBOARD
-            </button>
+            <div className="flex gap-4">
+              <button
+                onClick={() => setCurrentStep(1)}
+                className="w-1/3 py-4 rounded-lg border-2 border-slate-700 text-white font-bold uppercase tracking-wider hover:border-slate-600 hover:bg-slate-900/50 transition-all transform hover:scale-105"
+              >
+                BACK
+              </button>
+              <button
+                onClick={handleProfileNext}
+                className="flex-1 py-4 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 text-black font-bold uppercase tracking-wider hover:from-cyan-300 hover:to-blue-400 transition-all transform hover:scale-105 shadow-lg shadow-cyan-400/30"
+              >
+                CONTINUE TO DASHBOARD
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -378,74 +832,452 @@ export default function Index() {
             {/* Dashboard Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
               {/* Weather Card */}
-              <div className="group relative rounded-2xl overflow-hidden bg-gradient-to-br from-blue-600 to-cyan-600 p-6 hover:scale-105 transition-transform cursor-pointer">
-                <div className="absolute inset-0 opacity-0 group-hover:opacity-20 bg-white transition-opacity" />
-                <div className="relative z-10 flex items-center justify-between">
-                  <div>
-                    <p className="text-blue-100 text-sm font-semibold mb-2">WEATHER</p>
-                    <p className="text-5xl font-black">32°C</p>
+              <div className="group relative rounded-2xl overflow-hidden bg-slate-900/50 border border-slate-700 p-6 hover:border-slate-600 hover:scale-105 transition-all backdrop-blur-sm">
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-10 bg-white transition-opacity" />
+                <div className="relative z-10 flex flex-col h-full justify-between gap-4">
+                  <div className="flex justify-between items-start w-full">
+                    <div>
+                      <p className="text-cyan-400 text-[10px] font-bold uppercase tracking-widest mb-1">WEATHER</p>
+                      <h3 className="text-white text-lg font-black truncate max-w-[180px]">{weatherData?.city || weatherCity}</h3>
+                    </div>
+                    {weatherData && !weatherLoading && !weatherError && (
+                      <div className="text-5xl">{getWeatherEmoji(weatherData.condition)}</div>
+                    )}
                   </div>
-                  <div className="text-6xl">☀️</div>
+ 
+                  {weatherLoading ? (
+                    <div className="animate-pulse space-y-2 py-2">
+                      <div className="h-8 bg-slate-800 rounded w-20"></div>
+                      <div className="h-4 bg-slate-800 rounded w-28"></div>
+                    </div>
+                  ) : weatherError ? (
+                    <div className="space-y-2 py-1">
+                      <p className="text-red-400 text-xs font-semibold">⚠️ {weatherError}</p>
+                      <button
+                        onClick={() => setWeatherCity((prev) => prev)}
+                        className="px-3 py-1.5 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 rounded text-black text-xs font-bold transition-all shadow-md"
+                      >
+                        RETRY
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="py-1">
+                      <p className="text-5xl font-black text-white">{weatherData?.temp ?? "--"}°C</p>
+                      <p className="text-slate-400 text-xs font-medium mt-1 uppercase tracking-wide">
+                        {weatherData?.condition} - {weatherData?.description}
+                      </p>
+                    </div>
+                  )}
+ 
+                  <form onSubmit={handleSearchSubmit} className="flex gap-2 mt-2 w-full">
+                    <input
+                      type="text"
+                      placeholder="Search city..."
+                      value={searchCity}
+                      onChange={(e) => setSearchCity(e.target.value)}
+                      className="flex-1 bg-slate-950/50 placeholder-slate-500 border border-slate-800 focus:border-cyan-400 text-white rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-400/50 transition-all"
+                    />
+                  </form>
                 </div>
               </div>
-
+ 
               {/* Humidity Card */}
-              <div className="group relative rounded-2xl overflow-hidden bg-gradient-to-br from-cyan-600 to-blue-600 p-6 hover:scale-105 transition-transform cursor-pointer">
-                <div className="absolute inset-0 opacity-0 group-hover:opacity-20 bg-white transition-opacity" />
-                <div className="relative z-10 flex items-center justify-between">
-                  <div>
-                    <p className="text-cyan-100 text-sm font-semibold mb-2">HUMIDITY</p>
-                    <p className="text-5xl font-black">65%</p>
-                  </div>
+              <div className="group relative rounded-2xl overflow-hidden bg-slate-900/50 border border-slate-700 p-6 hover:border-slate-600 hover:scale-105 transition-all backdrop-blur-sm">
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-10 bg-white transition-opacity" />
+                <div className="relative z-10 flex items-center justify-between h-full">
+                  {weatherLoading ? (
+                    <div className="animate-pulse space-y-2 w-full">
+                      <div className="h-4 bg-slate-800 rounded w-1/3"></div>
+                      <div className="h-8 bg-slate-800 rounded w-1/2"></div>
+                    </div>
+                  ) : weatherError ? (
+                    <div>
+                      <p className="text-blue-400 text-[10px] font-bold uppercase tracking-widest mb-2">HUMIDITY</p>
+                      <p className="text-2xl font-black text-white">--%</p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-blue-400 text-[10px] font-bold uppercase tracking-widest mb-2">HUMIDITY</p>
+                      <p className="text-5xl font-black text-white">{weatherData?.humidity ?? "--"}%</p>
+                    </div>
+                  )}
                   <div className="text-6xl">💧</div>
                 </div>
               </div>
 
               {/* News Card */}
-              <div className="group rounded-2xl overflow-hidden bg-slate-900/50 border border-slate-700 p-6 hover:border-slate-600 hover:scale-105 transition-all backdrop-blur-sm">
-                <div className="flex gap-4 h-full flex-col justify-between">
-                  <div className="text-4xl">📰</div>
-                  <div>
-                    <p className="text-slate-400 text-xs font-bold uppercase mb-2 tracking-widest">BREAKING NEWS</p>
-                    <p className="text-slate-200 text-sm leading-relaxed">
-                      New streaming features available for all users
-                    </p>
+              <div className="group relative rounded-2xl overflow-hidden bg-slate-900/50 border border-slate-700 p-6 hover:border-slate-600 transition-all backdrop-blur-sm flex flex-col h-full min-h-[380px] justify-between">
+                <div className="relative z-10 flex flex-col h-full justify-between gap-4">
+                  {/* Header */}
+                  <div className="flex justify-between items-center w-full">
+                    <div>
+                      <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest mb-1">ENTERTAINMENT NEWS</p>
+                      <h3 className="text-white text-lg font-black">Trending Now</h3>
+                    </div>
+                    <div className="text-3xl animate-bounce">📰</div>
+                  </div>
+
+                  {/* Body Content */}
+                  {newsLoading ? (
+                    // Skeleton Loader
+                    <div className="flex-1 space-y-4 py-2">
+                      {[1, 2, 3].map((i) => (
+                        <div key={i} className="flex gap-3 animate-pulse">
+                          <div className="w-14 h-14 bg-slate-800 rounded-lg flex-shrink-0"></div>
+                          <div className="flex-1 space-y-2 py-1">
+                            <div className="h-3 bg-slate-800/60 rounded w-5/6"></div>
+                            <div className="h-2 bg-slate-800/40 rounded w-1/3"></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : newsError ? (
+                    // Error State
+                    <div className="flex-1 flex flex-col justify-center items-center py-4 text-center space-y-3">
+                      <p className="text-red-400 text-sm font-medium">⚠️ {newsError}</p>
+                      <button
+                        onClick={() => {
+                          const url = new URL(window.location.href);
+                          url.searchParams.delete("news_error");
+                          window.history.replaceState({}, "", url.toString());
+                          loadNews(true);
+                        }}
+                        className="px-4 py-2 rounded-lg bg-gradient-to-r from-pink-500 to-red-500 text-white font-bold text-xs uppercase tracking-wider hover:from-pink-400 hover:to-red-400 transition-all hover:scale-105 transform shadow-lg shadow-pink-500/20"
+                      >
+                        RETRY
+                      </button>
+                    </div>
+                  ) : (
+                    // Articles List
+                    <div className="flex-1 space-y-4 overflow-y-auto max-h-[240px] pr-1 scrollbar-thin">
+                      {news.slice(0, 3).map((art, index) => (
+                        <div
+                          key={index}
+                          onClick={() => window.open(art.url, "_blank")}
+                          className="flex gap-3 cursor-pointer group/item hover:bg-white/5 p-2 rounded-xl transition-all border border-transparent hover:border-slate-800 hover:translate-x-1"
+                        >
+                          {art.image && (
+                            <img
+                              src={art.image}
+                              alt={art.title}
+                              className="w-14 h-14 rounded-lg object-cover flex-shrink-0 bg-slate-800 border border-slate-700/50"
+                            />
+                          )}
+                          <div className="flex-1 min-w-0 flex flex-col justify-between">
+                            <p className="text-slate-200 text-xs font-bold leading-snug group-hover/item:text-cyan-400 transition-colors line-clamp-2">
+                              {art.title}
+                            </p>
+                            <div className="flex items-center justify-between mt-1 text-[10px] text-slate-400">
+                              <span className="font-semibold truncate max-w-[80px]">{art.source}</span>
+                              <span>{formatRelativeTime(art.publishedAt)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Footer */}
+                  <div className="text-[10px] text-slate-500 text-center border-t border-slate-800/60 pt-2 flex justify-between items-center">
+                    <span>Refreshes automatically</span>
+                    <button
+                      onClick={() => loadNews(true)}
+                      className="text-cyan-400 hover:text-cyan-300 font-bold transition-colors uppercase tracking-wider text-[9px]"
+                      disabled={newsLoading}
+                    >
+                      Refresh Now
+                    </button>
                   </div>
                 </div>
               </div>
 
               {/* Timer Card */}
-              <div className="group relative rounded-2xl overflow-hidden bg-gradient-to-br from-purple-600 to-pink-600 p-6 hover:scale-105 transition-transform cursor-pointer">
+              <div className="group relative rounded-2xl overflow-hidden bg-gradient-to-br from-purple-600 to-pink-600 p-6 hover:scale-105 transition-transform flex flex-col justify-between h-32 select-none">
                 <div className="absolute inset-0 opacity-0 group-hover:opacity-20 bg-white transition-opacity" />
-                <div className="relative z-10 flex flex-col items-center justify-center h-32">
-                  <p className="text-sm text-purple-100 font-semibold mb-2">FOCUS TIME</p>
-                  <p className="text-5xl font-black">25:00</p>
+                
+                {/* Header info */}
+                <div className="relative z-10 flex justify-between items-center w-full">
+                  <p className="text-purple-100 text-[10px] font-bold uppercase tracking-widest">FOCUS TIME</p>
+                  <span className="text-[10px] font-bold text-purple-200 uppercase tracking-widest">
+                    {isRunning ? "Running" : "Paused"}
+                  </span>
+                </div>
+
+                {/* Main countdown row */}
+                <div className="relative z-10 flex justify-between items-center w-full my-1">
+                  {/* Time display */}
+                  <p className="text-4xl font-black text-white">{formatTime(timeLeft)}</p>
+                  
+                  {/* Controls */}
+                  <div className="flex gap-2 items-center">
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setIsRunning(prev => !prev);
+                      }}
+                      className="p-2 rounded-full bg-white text-purple-600 hover:bg-purple-100 transition-colors shadow-lg active:scale-95 transform flex items-center justify-center"
+                      title={isRunning ? "Pause" : "Start"}
+                    >
+                      {isRunning ? <Pause size={12} className="fill-purple-600" /> : <Play size={12} className="fill-purple-600 ml-0.5" />}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        resetTimer();
+                      }}
+                      className="p-2 rounded-full bg-white/20 text-white hover:bg-white/30 transition-colors active:scale-95 transform flex items-center justify-center"
+                      title="Reset"
+                    >
+                      <RotateCcw size={12} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Progress bar / Countdown animation */}
+                <div className="relative z-10 w-full bg-white/10 rounded-full h-1 overflow-hidden mt-1">
+                  <div
+                    className="bg-white h-full rounded-full transition-all duration-1000 ease-linear shadow-glow"
+                    style={{ width: `${(timeLeft / 1500) * 100}%` }}
+                  />
                 </div>
               </div>
 
-              {/* Popcorn Card */}
-              <div className="group relative rounded-2xl overflow-hidden bg-gradient-to-br from-orange-600 to-red-600 p-6 hover:scale-105 transition-transform cursor-pointer">
+              {/* Notes Card (previously Popcorn Card) */}
+              <div className="group relative rounded-2xl overflow-hidden bg-gradient-to-br from-orange-600 to-red-600 p-6 hover:scale-105 transition-all flex flex-col justify-between min-h-[220px]">
                 <div className="absolute inset-0 opacity-0 group-hover:opacity-20 bg-white transition-opacity" />
-                <div className="relative z-10 flex items-center justify-between">
-                  <div>
-                    <p className="text-orange-100 text-sm font-semibold">POPCORN</p>
-                    <p className="text-2xl font-black mt-1">Movie Time</p>
+                
+                {/* Header */}
+                <div className="relative z-10 flex justify-between items-center w-full mb-3">
+                  <div className="flex items-center gap-2">
+                    <p className="text-orange-100 text-[10px] font-bold uppercase tracking-widest">NOTES</p>
+                    <span className="text-[10px] font-bold text-orange-200 bg-black/25 px-2 py-0.5 rounded-full">
+                      {notes.length}
+                    </span>
                   </div>
-                  <div className="text-6xl">🍿</div>
+                  {editingNoteId === null && (
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleCreateNote();
+                      }}
+                      className="p-1 rounded-lg bg-white/20 text-white hover:bg-white/30 hover:scale-105 active:scale-95 transition-all flex items-center justify-center text-xs font-bold px-2.5 py-1"
+                      title="Add Note"
+                    >
+                      + Add
+                    </button>
+                  )}
                 </div>
+
+                {editingNoteId !== null ? (
+                  /* Create / Edit Note Inline Form */
+                  <div className="relative z-10 flex-1 flex flex-col justify-between gap-3 w-full">
+                    <textarea
+                      value={noteText}
+                      onChange={(e) => setNoteText(e.target.value.slice(0, 150))}
+                      placeholder="Write a quick note..."
+                      className="w-full flex-1 bg-black/20 border border-white/25 rounded-xl px-3 py-2 text-xs text-white placeholder-orange-200/60 focus:outline-none focus:border-white/40 transition-all resize-none min-h-[90px]"
+                      rows={3}
+                      autoFocus
+                    />
+                    <div className="flex justify-between items-center w-full">
+                      <span className={`text-[10px] font-bold ${noteText.length >= 140 ? 'text-yellow-300' : 'text-orange-200'}`}>
+                        {noteText.length}/150
+                      </span>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleCancelNote();
+                          }}
+                          className="px-2.5 py-1 text-[10px] font-bold uppercase text-white hover:bg-white/10 rounded-lg transition-all"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleSaveNote();
+                          }}
+                          disabled={!noteText.trim()}
+                          className="px-3 py-1 text-[10px] font-bold uppercase bg-white text-orange-700 hover:bg-orange-100 rounded-lg disabled:opacity-50 disabled:hover:bg-white transition-all shadow-md"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Notes List View */
+                  <div className="relative z-10 flex-1 flex flex-col justify-between w-full h-full">
+                    {notes.length === 0 ? (
+                      <div className="flex-1 flex flex-col justify-center items-center py-6 text-center">
+                        <span className="text-3xl mb-1 animate-pulse">📝</span>
+                        <p className="text-orange-100 text-xs font-semibold">No notes yet</p>
+                        <p className="text-orange-200/70 text-[10px] mt-0.5">Click + Add to create your first note</p>
+                      </div>
+                    ) : (
+                      <div className="flex-1 overflow-y-auto max-h-[140px] pr-1 space-y-2.5 scrollbar-thin scrollbar-thumb-white/20">
+                        {notes.map((note) => (
+                          <div
+                            key={note.id}
+                            className="flex justify-between gap-3 bg-black/15 hover:bg-black/25 border border-white/5 hover:border-white/10 rounded-xl p-2.5 transition-all group/item"
+                          >
+                            <p className="text-white text-xs leading-relaxed break-words flex-1 pr-1 font-medium whitespace-pre-wrap">
+                              {note.text}
+                            </p>
+                            <div className="flex gap-1.5 items-start">
+                              <button
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleEditNote(note);
+                                }}
+                                className="p-1 text-orange-200 hover:text-white transition-colors"
+                                title="Edit note"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-3.5 h-3.5">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
+                                </svg>
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleDeleteNote(note.id);
+                                }}
+                                className="p-1 text-orange-200 hover:text-red-300 transition-colors"
+                                title="Delete note"
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-3.5 h-3.5">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                                </svg>
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Movies Card - Larger */}
-              <div className="group relative rounded-2xl overflow-hidden bg-gradient-to-br from-indigo-600 to-purple-600 p-6 hover:scale-105 transition-transform cursor-pointer md:col-span-1">
+              <Link
+                to="/movies"
+                className="group relative rounded-2xl overflow-hidden bg-gradient-to-br from-indigo-600 to-purple-600 p-6 hover:scale-105 transition-all flex flex-col justify-between min-h-[380px]"
+              >
                 <div className="absolute inset-0 opacity-0 group-hover:opacity-20 bg-white transition-opacity" />
-                <div className="relative z-10 space-y-4 h-32 flex flex-col justify-between">
-                  <div>
-                    <p className="text-indigo-100 text-sm font-semibold">MOVIES</p>
-                    <p className="text-xl font-black mt-1">Action & Thriller</p>
+                <div className="relative z-10 flex flex-col h-full justify-between gap-4 w-full">
+                  <div className="flex justify-between items-center w-full">
+                    <div>
+                      <p className="text-indigo-100 text-[10px] font-bold uppercase tracking-widest mb-1">RECOMMENDED MOVIES</p>
+                      <h3 className="text-white text-lg font-black">Picked for You</h3>
+                    </div>
+                    <div className="text-3xl animate-pulse">🎬</div>
                   </div>
-                  <div className="text-4xl">🎬</div>
+
+                  {recLoading ? (
+                    <div className="flex gap-4 py-1 animate-pulse">
+                      {[1, 2].map((i) => (
+                        <div key={i} className="flex-1 flex flex-col gap-2">
+                          <div className="aspect-[2/3] bg-white/10 rounded-xl border border-white/5"></div>
+                          <div className="h-3 bg-white/10 rounded w-5/6"></div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : recError ? (
+                    <div className="flex-1 flex flex-col justify-center items-center py-4 text-center space-y-3">
+                      <p className="text-red-200 text-xs font-semibold">⚠️ {recError}</p>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          loadRecommendations(true);
+                        }}
+                        className="px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded text-xs font-bold transition-all text-white"
+                      >
+                        RETRY
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Category Pills/Tabs inside the Movies Card */}
+                      {formData.categories.length > 0 && (
+                        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                          {formData.categories.map((catId) => {
+                            const cat = categories.find((c) => c.id === catId);
+                            const isActive = activeCategory === catId;
+                            return cat ? (
+                              <button
+                                key={catId}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setActiveCategory(catId);
+                                }}
+                                className={`px-2.5 py-1 rounded-full text-[9px] font-bold tracking-wide uppercase transition-all whitespace-nowrap border ${
+                                  isActive
+                                    ? "bg-white text-indigo-900 border-white"
+                                    : "bg-white/10 text-indigo-100 border-white/15 hover:bg-white/20"
+                                }`}
+                              >
+                                <span>{cat.icon} </span>
+                                {cat.label}
+                              </button>
+                            ) : null;
+                          })}
+                        </div>
+                      )}
+
+                      {/* Display movies for the active category */}
+                      <div className="flex gap-4 py-1 min-h-[140px]">
+                        {activeCategory && recommendationsByCategory[activeCategory]?.length > 0 ? (
+                          recommendationsByCategory[activeCategory].slice(0, 2).map((movie) => (
+                            <div key={movie.id} className="flex-1 flex flex-col gap-2 group/item">
+                              <div className="relative aspect-[2/3] w-full rounded-xl overflow-hidden border border-white/10 shadow bg-slate-900 group-hover/item:border-white/30 transition-all">
+                                <img
+                                  src={getPosterUrl(movie.poster_path)}
+                                  alt={movie.title}
+                                  className="w-full h-full object-cover"
+                                  loading="lazy"
+                                />
+                                <div className="absolute top-2 right-2 flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-black/80 border border-white/10 text-[9px] font-bold text-yellow-400">
+                                  <Star size={8} className="fill-yellow-400" />
+                                  {movie.vote_average ? movie.vote_average.toFixed(1) : "N/A"}
+                                </div>
+                              </div>
+                              <div className="px-0.5">
+                                <p className="text-white text-xs font-bold truncate group-hover/item:text-cyan-300 transition-colors leading-tight">
+                                  {movie.title}
+                                </p>
+                                <p className="text-indigo-100 text-[10px] mt-0.5">
+                                  {movie.release_date ? movie.release_date.substring(0, 4) : "Unknown"}
+                                </p>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="flex-1 flex items-center justify-center text-center py-4">
+                            <p className="text-indigo-200 text-xs italic">No recommendations loaded</p>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  <div className="text-[10px] text-indigo-100/70 text-center border-t border-white/10 pt-2 flex justify-between items-center w-full">
+                    <span>Based on your categories</span>
+                    <span className="font-bold text-white group-hover:translate-x-1 transition-transform flex items-center gap-1 text-[9px] uppercase tracking-wider">
+                      Explore All <ArrowRight size={10} />
+                    </span>
+                  </div>
                 </div>
-              </div>
+              </Link>
             </div>
 
             {/* Action Buttons */}
