@@ -3,7 +3,8 @@ import { createServer } from "./index";
 import * as express from "express";
 
 const app = createServer();
-const port = process.env.PORT || 3000;
+const rawPort = process.env.PORT;
+const port = (rawPort && !isNaN(Number(rawPort))) ? Number(rawPort) : 3000;
 
 // In production, serve the built SPA files
 const __dirname = import.meta.dirname;
