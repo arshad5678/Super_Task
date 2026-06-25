@@ -32,6 +32,7 @@ export const handleNews: RequestHandler = async (req, res) => {
     const data = await response.json();
     const articles = (data.articles || []).map((art: any) => ({
       title: art.title,
+      description: art.description || "No description available for this entertainment update.",
       source: art.source?.name || "Unknown Source",
       publishedAt: art.publishedAt || new Date().toISOString(),
       image: art.image || "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?auto=format&fit=crop&w=400&q=80",
@@ -50,6 +51,7 @@ function getMockNews() {
   return [
     {
       title: "Hollywood Stars Align for the Grand Gala Night in Los Angeles",
+      description: "A dazzling display of glamour and prestige as A-listers gather at the Dolby Theatre to celebrate achievements in contemporary cinema and raise funds for the arts foundation.",
       source: "Hollywood Reporter",
       publishedAt: now.toISOString(),
       image: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=400&q=80",
@@ -57,6 +59,7 @@ function getMockNews() {
     },
     {
       title: "Next-Gen Streaming Platform Announces 50 New Original Series",
+      description: "In a bid to dominate global streaming, the platform has unveiled an aggressive production slate featuring collaborations with acclaimed international filmmakers and massive budgets.",
       source: "Variety",
       publishedAt: new Date(now.getTime() - 45 * 60 * 1000).toISOString(), // 45m ago
       image: "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?auto=format&fit=crop&w=400&q=80",
@@ -64,6 +67,7 @@ function getMockNews() {
     },
     {
       title: "Indie Film Wins Top Honors at International Film Festival",
+      description: "Against all odds, a low-budget project filmed entirely during a single week has secured the prestigious Golden Palms, captivating critics and audiences alike.",
       source: "IndieWire",
       publishedAt: new Date(now.getTime() - 2.5 * 60 * 60 * 1000).toISOString(), // 2.5h ago
       image: "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?auto=format&fit=crop&w=400&q=80",

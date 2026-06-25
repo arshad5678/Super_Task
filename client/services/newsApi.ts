@@ -1,5 +1,6 @@
 export interface NewsArticle {
   title: string;
+  description?: string;
   source: string;
   publishedAt: string;
   image: string;

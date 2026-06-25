@@ -38,6 +38,8 @@ export const handleWeather: RequestHandler = async (req, res) => {
     res.json({
       temp: Math.round(data.main.temp),
       humidity: data.main.humidity,
+      pressure: data.main.pressure,
+      wind_speed: data.wind.speed,
       condition: data.weather[0].main,
       description: data.weather[0].description,
       icon: data.weather[0].icon,
@@ -54,12 +56,12 @@ export const handleWeather: RequestHandler = async (req, res) => {
 function getMockWeather(city: string) {
   const cleanCity = city.toLowerCase().trim();
   const mockCities: Record<string, any> = {
-    london: { temp: 15, humidity: 80, condition: "Clouds", description: "scattered clouds", icon: "03d", city: "London" },
-    "new york": { temp: 22, humidity: 60, condition: "Clear", description: "clear sky", icon: "01d", city: "New York" },
-    tokyo: { temp: 19, humidity: 75, condition: "Rain", description: "moderate rain", icon: "10d", city: "Tokyo" },
-    paris: { temp: 17, humidity: 70, condition: "Mist", description: "misty morning", icon: "50d", city: "Paris" },
-    mumbai: { temp: 31, humidity: 85, condition: "Haze", description: "hazy sky", icon: "50d", city: "Mumbai" },
-    delhi: { temp: 34, humidity: 55, condition: "Clear", description: "clear sky", icon: "01d", city: "Delhi" },
+    london: { temp: 15, humidity: 80, pressure: 1012, wind_speed: 4.1, condition: "Clouds", description: "scattered clouds", icon: "03d", city: "London" },
+    "new york": { temp: 22, humidity: 60, pressure: 1015, wind_speed: 3.6, condition: "Clear", description: "clear sky", icon: "01d", city: "New York" },
+    tokyo: { temp: 19, humidity: 75, pressure: 1008, wind_speed: 5.2, condition: "Rain", description: "moderate rain", icon: "10d", city: "Tokyo" },
+    paris: { temp: 17, humidity: 70, pressure: 1013, wind_speed: 2.9, condition: "Mist", description: "misty morning", icon: "50d", city: "Paris" },
+    mumbai: { temp: 31, humidity: 85, pressure: 1005, wind_speed: 6.2, condition: "Haze", description: "hazy sky", icon: "50d", city: "Mumbai" },
+    delhi: { temp: 34, humidity: 55, pressure: 1002, wind_speed: 2.1, condition: "Clear", description: "clear sky", icon: "01d", city: "Delhi" },
   };
 
   if (mockCities[cleanCity]) {
@@ -70,6 +72,8 @@ function getMockWeather(city: string) {
   const hash = cleanCity.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
   const temp = 12 + (hash % 24); // 12°C to 36°C
   const humidity = 45 + (hash % 46); // 45% to 90%
+  const pressure = 990 + (hash % 31); // 990 to 1020 hPa
+  const wind_speed = Number((1.0 + (hash % 100) / 10).toFixed(1)); // 1.0 to 11.0 m/s
   const conditions = ["Clear", "Clouds", "Rain", "Drizzle", "Mist", "Haze"];
   const icons = ["01d", "03d", "10d", "09d", "50d", "50d"];
   const conditionIdx = hash % conditions.length;
@@ -82,6 +86,8 @@ function getMockWeather(city: string) {
   return {
     temp,
     humidity,
+    pressure,
+    wind_speed,
     condition: conditions[conditionIdx],
     description: `mock ${conditions[conditionIdx].toLowerCase()}`,
     icon: icons[conditionIdx],

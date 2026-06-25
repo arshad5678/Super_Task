@@ -17,6 +17,7 @@ import {
   type Movie,
 } from "@/services/movieApi";
 import { Link } from "react-router-dom";
+import MovieDetailsModal from "@/components/MovieDetailsModal";
 
 export interface Note {
   id: string;
@@ -135,7 +136,7 @@ export default function Index() {
   useEffect(() => {
     if (currentStep > 0 && (!formData.fullName || !formData.username || !formData.email || !formData.mobile || !formData.password)) {
       setCurrentStep(0);
-    } else if (currentStep > 1 && formData.categories.length === 0) {
+    } else if (currentStep > 1 && formData.categories.length < 3) {
       setCurrentStep(1);
     }
   }, [currentStep, formData]);
@@ -192,6 +193,7 @@ export default function Index() {
   const [news, setNews] = useState<NewsArticle[]>(() => getCachedNews());
   const [newsLoading, setNewsLoading] = useState(false);
   const [newsError, setNewsError] = useState<string | null>(null);
+  const [activeNewsIndex, setActiveNewsIndex] = useState(0);
 
   const loadNews = useCallback(async (showLoading = false) => {
     if (showLoading) setNewsLoading(true);
@@ -199,6 +201,7 @@ export default function Index() {
     try {
       const articles = await fetchEntertainmentNews();
       setNews(articles);
+      setActiveNewsIndex(0);
       saveNewsToCache(articles);
     } catch (err: any) {
       setNewsError(err.message || "Failed to load entertainment news");
@@ -223,11 +226,21 @@ export default function Index() {
     return () => clearInterval(interval);
   }, [currentStep, loadNews]);
 
+  // Auto-advance news article index every 2 seconds
+  useEffect(() => {
+    if (currentStep !== 3 || news.length <= 1) return;
+    const interval = setInterval(() => {
+      setActiveNewsIndex((prev) => (prev + 1) % news.length);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [currentStep, news.length]);
+
   // Movie Recommendations widget state and integration
   const [recommendationsByCategory, setRecommendationsByCategory] = useState<Record<string, Movie[]>>(() => getCachedRecommendations() as any);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [recLoading, setRecLoading] = useState(false);
   const [recError, setRecError] = useState<string | null>(null);
+  const [selectedMovieId, setSelectedMovieId] = useState<number | null>(null);
 
   // Sync active category with selected categories
   useEffect(() => {
@@ -269,24 +282,38 @@ export default function Index() {
     loadRecommendations(shouldShowLoading);
   }, [currentStep, loadRecommendations]);
 
-  // Pomodoro Timer State
+  // Custom Duration Timer State
+  const [customHours, setCustomHours] = useState(() => {
+    const saved = localStorage.getItem("superapp_timer_hours");
+    return saved ? Number(saved) : 0;
+  });
+  const [customMinutes, setCustomMinutes] = useState(() => {
+    const saved = localStorage.getItem("superapp_timer_minutes");
+    return saved ? Number(saved) : 25;
+  });
+  const [customSeconds, setCustomSeconds] = useState(() => {
+    const saved = localStorage.getItem("superapp_timer_seconds");
+    return saved ? Number(saved) : 0;
+  });
+  const [totalDuration, setTotalDuration] = useState(() => {
+    const saved = localStorage.getItem("superapp_timer_total_duration");
+    return saved ? Number(saved) : 25 * 60;
+  });
+
   const [timeLeft, setTimeLeft] = useState(() => {
     const savedTime = localStorage.getItem("superapp_pomodoro_time_left");
     const savedRunning = localStorage.getItem("superapp_pomodoro_is_running") === "true";
     const savedLastUpdated = localStorage.getItem("superapp_pomodoro_last_updated");
     
-    const defaultTime = 25 * 60; // 1500 seconds
-    
     if (savedTime !== null) {
       const parsedTime = Number(savedTime);
       if (savedRunning && savedLastUpdated) {
         const elapsed = Math.floor((Date.now() - Number(savedLastUpdated)) / 1000);
-        const newTime = Math.max(0, parsedTime - elapsed);
-        return newTime;
+        return Math.max(0, parsedTime - elapsed);
       }
       return parsedTime;
     }
-    return defaultTime;
+    return 25 * 60;
   });
 
   const [isRunning, setIsRunning] = useState(() => {
@@ -297,20 +324,30 @@ export default function Index() {
     if (savedRunning && savedTime !== null && savedLastUpdated) {
       const parsedTime = Number(savedTime);
       const elapsed = Math.floor((Date.now() - Number(savedLastUpdated)) / 1000);
-      if (parsedTime - elapsed <= 0) {
-        return false;
-      }
+      if (parsedTime - elapsed <= 0) return false;
       return true;
     }
     return false;
   });
 
-  // Persist timer state to localStorage whenever it changes
+  const [timerExpired, setTimerExpired] = useState(false);
+
+  const syncTimeLeft = (h: number, m: number, s: number) => {
+    const total = h * 3600 + m * 60 + s;
+    setTimeLeft(total);
+    setTotalDuration(total);
+  };
+
+  // Persist timer state to localStorage
   useEffect(() => {
+    localStorage.setItem("superapp_timer_hours", String(customHours));
+    localStorage.setItem("superapp_timer_minutes", String(customMinutes));
+    localStorage.setItem("superapp_timer_seconds", String(customSeconds));
+    localStorage.setItem("superapp_timer_total_duration", String(totalDuration));
     localStorage.setItem("superapp_pomodoro_time_left", String(timeLeft));
     localStorage.setItem("superapp_pomodoro_is_running", String(isRunning));
     localStorage.setItem("superapp_pomodoro_last_updated", String(Date.now()));
-  }, [timeLeft, isRunning]);
+  }, [customHours, customMinutes, customSeconds, totalDuration, timeLeft, isRunning]);
 
   // Timer countdown effect
   useEffect(() => {
@@ -320,6 +357,21 @@ export default function Index() {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           setIsRunning(false);
+          setTimerExpired(true);
+          try {
+            const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.type = "sine";
+            osc.frequency.value = 880;
+            gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.5);
+          } catch (e) {
+            console.warn("Audio Context alert failed:", e);
+          }
           return 0;
         }
         return prev - 1;
@@ -331,16 +383,17 @@ export default function Index() {
 
   const resetTimer = useCallback(() => {
     setIsRunning(false);
-    setTimeLeft(25 * 60);
-    localStorage.setItem("superapp_pomodoro_time_left", String(25 * 60));
-    localStorage.setItem("superapp_pomodoro_is_running", "false");
-    localStorage.setItem("superapp_pomodoro_last_updated", String(Date.now()));
-  }, []);
+    setTimerExpired(false);
+    const total = customHours * 3600 + customMinutes * 60 + customSeconds;
+    setTimeLeft(total);
+    setTotalDuration(total);
+  }, [customHours, customMinutes, customSeconds]);
 
   const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
     const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
   // Notes State & Handlers
@@ -403,13 +456,11 @@ export default function Index() {
     { id: "action", label: "Action", icon: "🔥", color: "from-red-500 via-orange-500 to-yellow-400", darkColor: "from-red-600 to-orange-700" },
     { id: "comedy", label: "Comedy", icon: "😄", color: "from-yellow-400 to-amber-500", darkColor: "from-yellow-500 to-amber-600" },
     { id: "drama", label: "Drama", icon: "🎭", color: "from-purple-500 to-indigo-600", darkColor: "from-purple-600 to-indigo-700" },
-    { id: "thriller", label: "Thriller", icon: "🎬", color: "from-pink-500 to-red-600", darkColor: "from-pink-600 to-red-700" },
-    { id: "horror", label: "Horror", icon: "👑", color: "from-green-500 to-teal-600", darkColor: "from-green-600 to-teal-700" },
-    { id: "romance", label: "Romance", icon: "💕", color: "from-pink-400 to-rose-500", darkColor: "from-pink-500 to-rose-600" },
-    { id: "scifi", label: "Sci-fi", icon: "🚀", color: "from-blue-500 to-cyan-500", darkColor: "from-blue-600 to-cyan-600" },
-    { id: "fantasy", label: "Fantasy", icon: "✨", color: "from-indigo-500 to-purple-600", darkColor: "from-indigo-600 to-purple-700" },
-    { id: "documentary", label: "Documentary", icon: "🎥", color: "from-amber-600 to-orange-700", darkColor: "from-amber-700 to-orange-800" },
     { id: "music", label: "Music", icon: "🎵", color: "from-purple-500 to-pink-500", darkColor: "from-purple-600 to-pink-600" },
+    { id: "sports", label: "Sports", icon: "⚽", color: "from-emerald-400 to-teal-500", darkColor: "from-emerald-500 to-teal-600" },
+    { id: "thriller", label: "Thriller", icon: "🎬", color: "from-pink-500 to-red-600", darkColor: "from-pink-600 to-red-700" },
+    { id: "fantasy", label: "Fantasy", icon: "✨", color: "from-indigo-500 to-purple-600", darkColor: "from-indigo-600 to-purple-700" },
+    { id: "romance", label: "Romance", icon: "💕", color: "from-pink-400 to-rose-500", darkColor: "from-pink-500 to-rose-600" },
   ];
 
   const toggleCategory = (id: string) => {
@@ -440,7 +491,7 @@ export default function Index() {
   };
 
   const handleCategoriesNext = () => {
-    if (formData.categories.length > 0) {
+    if (formData.categories.length >= 3) {
       setCurrentStep(2);
     }
   };
@@ -729,21 +780,28 @@ export default function Index() {
             </div>
 
             {/* Continue Button */}
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
               <button
                 onClick={() => setCurrentStep(0)}
                 className="px-8 py-4 rounded-lg border-2 border-slate-700 text-white font-bold uppercase tracking-wider hover:border-slate-600 hover:bg-slate-900/50 transition-all transform hover:scale-105"
               >
                 BACK
               </button>
-              <button
-                onClick={handleCategoriesNext}
-                disabled={formData.categories.length === 0}
-                className="group px-8 py-4 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 text-black font-bold uppercase tracking-wider hover:from-cyan-300 hover:to-blue-400 disabled:opacity-40 disabled:cursor-not-allowed transition-all transform hover:scale-105 shadow-lg shadow-cyan-400/30 flex items-center gap-2"
-              >
-                CONTINUE
-                <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
-              </button>
+              <div className="flex flex-col items-center sm:items-end gap-2">
+                <button
+                  onClick={handleCategoriesNext}
+                  disabled={formData.categories.length < 3}
+                  className="group px-8 py-4 rounded-lg bg-gradient-to-r from-cyan-400 to-blue-500 text-black font-bold uppercase tracking-wider hover:from-cyan-300 hover:to-blue-400 disabled:opacity-40 disabled:cursor-not-allowed transition-all transform hover:scale-105 shadow-lg shadow-cyan-400/30 flex items-center gap-2"
+                >
+                  CONTINUE
+                  <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
+                </button>
+                {formData.categories.length < 3 && (
+                  <span className="text-red-400 text-xs font-semibold tracking-wide">
+                    Select at least 3 categories (Choose {3 - formData.categories.length} more)
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -832,12 +890,12 @@ export default function Index() {
             {/* Dashboard Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
               {/* Weather Card */}
-              <div className="group relative rounded-2xl overflow-hidden bg-slate-900/50 border border-slate-700 p-6 hover:border-slate-600 hover:scale-105 transition-all backdrop-blur-sm">
+              <div className="group relative rounded-2xl overflow-hidden bg-gradient-to-br from-sky-600 via-blue-600 to-indigo-700 p-6 hover:scale-105 transition-all duration-300 shadow-lg shadow-sky-600/25">
                 <div className="absolute inset-0 opacity-0 group-hover:opacity-10 bg-white transition-opacity" />
                 <div className="relative z-10 flex flex-col h-full justify-between gap-4">
                   <div className="flex justify-between items-start w-full">
                     <div>
-                      <p className="text-cyan-400 text-[10px] font-bold uppercase tracking-widest mb-1">WEATHER</p>
+                      <p className="text-sky-200 text-[10px] font-bold uppercase tracking-widest mb-1">WEATHER</p>
                       <h3 className="text-white text-lg font-black truncate max-w-[180px]">{weatherData?.city || weatherCity}</h3>
                     </div>
                     {weatherData && !weatherLoading && !weatherError && (
@@ -847,25 +905,39 @@ export default function Index() {
  
                   {weatherLoading ? (
                     <div className="animate-pulse space-y-2 py-2">
-                      <div className="h-8 bg-slate-800 rounded w-20"></div>
-                      <div className="h-4 bg-slate-800 rounded w-28"></div>
+                      <div className="h-8 bg-white/20 rounded w-20"></div>
+                      <div className="h-4 bg-white/10 rounded w-28"></div>
                     </div>
                   ) : weatherError ? (
                     <div className="space-y-2 py-1">
-                      <p className="text-red-400 text-xs font-semibold">⚠️ {weatherError}</p>
+                      <p className="text-red-200 text-xs font-semibold">⚠️ {weatherError}</p>
                       <button
                         onClick={() => setWeatherCity((prev) => prev)}
-                        className="px-3 py-1.5 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 rounded text-black text-xs font-bold transition-all shadow-md"
+                        className="px-3 py-1.5 bg-white/25 hover:bg-white/35 rounded text-white text-xs font-bold transition-all shadow-md"
                       >
                         RETRY
                       </button>
                     </div>
                   ) : (
-                    <div className="py-1">
-                      <p className="text-5xl font-black text-white">{weatherData?.temp ?? "--"}°C</p>
-                      <p className="text-slate-400 text-xs font-medium mt-1 uppercase tracking-wide">
-                        {weatherData?.condition} - {weatherData?.description}
-                      </p>
+                    <div className="py-1 space-y-3">
+                      <div>
+                        <p className="text-5xl font-black text-white">{weatherData?.temp ?? "--"}°C</p>
+                        <p className="text-sky-100 text-xs font-semibold mt-1 uppercase tracking-wide">
+                          {weatherData?.condition} - {weatherData?.description}
+                        </p>
+                      </div>
+                      
+                      {/* Expanded metrics grid: Pressure & Wind Speed */}
+                      <div className="grid grid-cols-2 gap-4 pt-3 border-t border-white/20">
+                        <div>
+                          <p className="text-[10px] font-bold text-sky-200 uppercase tracking-widest">PRESSURE</p>
+                          <p className="text-sm font-black text-white mt-0.5">{weatherData?.pressure ?? "--"} hPa</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-sky-200 uppercase tracking-widest">WIND</p>
+                          <p className="text-sm font-black text-white mt-0.5">{weatherData?.wind_speed ?? "--"} m/s</p>
+                        </div>
+                      </div>
                     </div>
                   )}
  
@@ -875,33 +947,33 @@ export default function Index() {
                       placeholder="Search city..."
                       value={searchCity}
                       onChange={(e) => setSearchCity(e.target.value)}
-                      className="flex-1 bg-slate-950/50 placeholder-slate-500 border border-slate-800 focus:border-cyan-400 text-white rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-cyan-400/50 transition-all"
+                      className="flex-1 bg-black/20 placeholder-sky-200/50 border border-white/20 focus:border-white text-white rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-white/50 transition-all"
                     />
                   </form>
                 </div>
               </div>
  
               {/* Humidity Card */}
-              <div className="group relative rounded-2xl overflow-hidden bg-slate-900/50 border border-slate-700 p-6 hover:border-slate-600 hover:scale-105 transition-all backdrop-blur-sm">
+              <div className="group relative rounded-2xl overflow-hidden bg-gradient-to-br from-teal-500 to-cyan-600 p-6 hover:scale-105 transition-all duration-300 shadow-lg shadow-teal-500/25">
                 <div className="absolute inset-0 opacity-0 group-hover:opacity-10 bg-white transition-opacity" />
-                <div className="relative z-10 flex items-center justify-between h-full">
+                <div className="relative z-10 flex items-center justify-between h-full w-full">
                   {weatherLoading ? (
                     <div className="animate-pulse space-y-2 w-full">
-                      <div className="h-4 bg-slate-800 rounded w-1/3"></div>
-                      <div className="h-8 bg-slate-800 rounded w-1/2"></div>
+                      <div className="h-4 bg-white/20 rounded w-1/3"></div>
+                      <div className="h-8 bg-white/10 rounded w-1/2"></div>
                     </div>
                   ) : weatherError ? (
                     <div>
-                      <p className="text-blue-400 text-[10px] font-bold uppercase tracking-widest mb-2">HUMIDITY</p>
+                      <p className="text-teal-100 text-[10px] font-bold uppercase tracking-widest mb-2">HUMIDITY</p>
                       <p className="text-2xl font-black text-white">--%</p>
                     </div>
                   ) : (
                     <div>
-                      <p className="text-blue-400 text-[10px] font-bold uppercase tracking-widest mb-2">HUMIDITY</p>
+                      <p className="text-teal-100 text-[10px] font-bold uppercase tracking-widest mb-2">HUMIDITY</p>
                       <p className="text-5xl font-black text-white">{weatherData?.humidity ?? "--"}%</p>
                     </div>
                   )}
-                  <div className="text-6xl">💧</div>
+                  <div className="text-6xl select-none">💧</div>
                 </div>
               </div>
 
@@ -948,33 +1020,39 @@ export default function Index() {
                       </button>
                     </div>
                   ) : (
-                    // Articles List
-                    <div className="flex-1 space-y-4 overflow-y-auto max-h-[240px] pr-1 scrollbar-thin">
-                      {news.slice(0, 3).map((art, index) => (
+                    // Highlighted Article
+                    (() => {
+                      const art = news[activeNewsIndex];
+                      if (!art) return null;
+                      return (
                         <div
-                          key={index}
                           onClick={() => window.open(art.url, "_blank")}
-                          className="flex gap-3 cursor-pointer group/item hover:bg-white/5 p-2 rounded-xl transition-all border border-transparent hover:border-slate-800 hover:translate-x-1"
+                          className="flex-1 flex flex-col justify-between cursor-pointer group/item hover:bg-white/5 p-2 rounded-xl transition-all border border-transparent hover:border-slate-800/80 gap-3"
                         >
                           {art.image && (
-                            <img
-                              src={art.image}
-                              alt={art.title}
-                              className="w-14 h-14 rounded-lg object-cover flex-shrink-0 bg-slate-800 border border-slate-700/50"
-                            />
-                          )}
-                          <div className="flex-1 min-w-0 flex flex-col justify-between">
-                            <p className="text-slate-200 text-xs font-bold leading-snug group-hover/item:text-cyan-400 transition-colors line-clamp-2">
-                              {art.title}
-                            </p>
-                            <div className="flex items-center justify-between mt-1 text-[10px] text-slate-400">
-                              <span className="font-semibold truncate max-w-[80px]">{art.source}</span>
-                              <span>{formatRelativeTime(art.publishedAt)}</span>
+                            <div className="relative aspect-[16/9] w-full rounded-xl overflow-hidden border border-slate-800/80 bg-slate-950">
+                              <img
+                                src={art.image}
+                                alt={art.title}
+                                className="w-full h-full object-cover group-hover/item:scale-105 transition-transform duration-500"
+                              />
                             </div>
+                          )}
+                          <div className="flex-1 flex flex-col gap-1.5">
+                            <h4 className="text-white text-sm font-black leading-snug group-hover/item:text-cyan-400 transition-colors line-clamp-2">
+                              {art.title}
+                            </h4>
+                            <p className="text-slate-400 text-[11px] line-clamp-3 leading-relaxed">
+                              {art.description}
+                            </p>
+                          </div>
+                          <div className="flex items-center justify-between text-[9px] text-slate-500 font-bold uppercase tracking-wider">
+                            <span className="text-cyan-400">{art.source}</span>
+                            <span>{formatRelativeTime(art.publishedAt)}</span>
                           </div>
                         </div>
-                      ))}
-                    </div>
+                      );
+                    })()
                   )}
 
                   {/* Footer */}
@@ -992,9 +1070,28 @@ export default function Index() {
               </div>
 
               {/* Timer Card */}
-              <div className="group relative rounded-2xl overflow-hidden bg-gradient-to-br from-purple-600 to-pink-600 p-6 hover:scale-105 transition-transform flex flex-col justify-between h-32 select-none">
+              <div className="group relative rounded-2xl overflow-hidden bg-gradient-to-br from-purple-600 to-pink-600 p-6 hover:scale-105 transition-transform flex flex-col justify-between min-h-[220px] select-none shadow-lg shadow-purple-600/25">
                 <div className="absolute inset-0 opacity-0 group-hover:opacity-20 bg-white transition-opacity" />
                 
+                {/* Timer Expired Flash Alert */}
+                {timerExpired && (
+                  <div className="absolute inset-0 bg-red-600 flex flex-col justify-center items-center gap-2 z-20 animate-pulse text-white p-4">
+                    <span className="text-4xl">⏰</span>
+                    <span className="font-black tracking-widest text-lg">TIME'S UP!</span>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setTimerExpired(false);
+                        resetTimer();
+                      }}
+                      className="mt-2 px-4 py-2 bg-white text-red-600 font-bold uppercase rounded-lg text-xs hover:bg-red-50 transition-all active:scale-95 shadow-md"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                )}
+
                 {/* Header info */}
                 <div className="relative z-10 flex justify-between items-center w-full">
                   <p className="text-purple-100 text-[10px] font-bold uppercase tracking-widest">FOCUS TIME</p>
@@ -1003,23 +1100,129 @@ export default function Index() {
                   </span>
                 </div>
 
-                {/* Main countdown row */}
-                <div className="relative z-10 flex justify-between items-center w-full my-1">
-                  {/* Time display */}
-                  <p className="text-4xl font-black text-white">{formatTime(timeLeft)}</p>
-                  
-                  {/* Controls */}
-                  <div className="flex gap-2 items-center">
+                {/* Config or Countdown Row */}
+                <div className="relative z-10 flex-1 flex flex-col justify-center items-center my-3 w-full">
+                  {!isRunning && timeLeft === totalDuration ? (
+                    /* Selectors View */
+                    <div className="flex gap-4 items-center justify-center">
+                      {/* Hours */}
+                      <div className="flex flex-col items-center">
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const nextVal = (customHours + 1) % 24;
+                            setCustomHours(nextVal);
+                            syncTimeLeft(nextVal, customMinutes, customSeconds);
+                          }}
+                          className="text-purple-200 hover:text-white p-1 hover:scale-110 active:scale-90 transition-transform font-bold"
+                        >
+                          ▲
+                        </button>
+                        <span className="text-3xl font-black text-white">{customHours.toString().padStart(2, "0")}</span>
+                        <span className="text-[8px] font-bold text-purple-200 uppercase tracking-widest">HRS</span>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const nextVal = (customHours - 1 + 24) % 24;
+                            setCustomHours(nextVal);
+                            syncTimeLeft(nextVal, customMinutes, customSeconds);
+                          }}
+                          className="text-purple-200 hover:text-white p-1 hover:scale-110 active:scale-90 transition-transform font-bold"
+                        >
+                          ▼
+                        </button>
+                      </div>
+                      <span className="text-xl font-bold text-purple-200/50 mt-1">:</span>
+                      {/* Minutes */}
+                      <div className="flex flex-col items-center">
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const nextVal = (customMinutes + 1) % 60;
+                            setCustomMinutes(nextVal);
+                            syncTimeLeft(customHours, nextVal, customSeconds);
+                          }}
+                          className="text-purple-200 hover:text-white p-1 hover:scale-110 active:scale-90 transition-transform font-bold"
+                        >
+                          ▲
+                        </button>
+                        <span className="text-3xl font-black text-white">{customMinutes.toString().padStart(2, "0")}</span>
+                        <span className="text-[8px] font-bold text-purple-200 uppercase tracking-widest">MINS</span>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const nextVal = (customMinutes - 1 + 60) % 60;
+                            setCustomMinutes(nextVal);
+                            syncTimeLeft(customHours, nextVal, customSeconds);
+                          }}
+                          className="text-purple-200 hover:text-white p-1 hover:scale-110 active:scale-90 transition-transform font-bold"
+                        >
+                          ▼
+                        </button>
+                      </div>
+                      <span className="text-xl font-bold text-purple-200/50 mt-1">:</span>
+                      {/* Seconds */}
+                      <div className="flex flex-col items-center">
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const nextVal = (customSeconds + 1) % 60;
+                            setCustomSeconds(nextVal);
+                            syncTimeLeft(customHours, customMinutes, nextVal);
+                          }}
+                          className="text-purple-200 hover:text-white p-1 hover:scale-110 active:scale-90 transition-transform font-bold"
+                        >
+                          ▲
+                        </button>
+                        <span className="text-3xl font-black text-white">{customSeconds.toString().padStart(2, "0")}</span>
+                        <span className="text-[8px] font-bold text-purple-200 uppercase tracking-widest">SECS</span>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const nextVal = (customSeconds - 1 + 60) % 60;
+                            setCustomSeconds(nextVal);
+                            syncTimeLeft(customHours, customMinutes, nextVal);
+                          }}
+                          className="text-purple-200 hover:text-white p-1 hover:scale-110 active:scale-90 transition-transform font-bold"
+                        >
+                          ▼
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Countdown/Running View */
+                    <div className="flex flex-col items-center justify-center">
+                      <p className="text-4xl font-black text-white tracking-widest">{formatTime(timeLeft)}</p>
+                      <p className="text-[9px] font-bold text-purple-200 mt-2 uppercase tracking-widest">
+                        Target: {customHours.toString().padStart(2, "0")}:{customMinutes.toString().padStart(2, "0")}:{customSeconds.toString().padStart(2, "0")}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Controls & Progress */}
+                <div className="relative z-10 space-y-3">
+                  {/* Controls row */}
+                  <div className="flex gap-4 justify-center items-center">
                     <button
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        setIsRunning(prev => !prev);
+                        if (timeLeft > 0) {
+                          setIsRunning(prev => !prev);
+                        }
                       }}
-                      className="p-2 rounded-full bg-white text-purple-600 hover:bg-purple-100 transition-colors shadow-lg active:scale-95 transform flex items-center justify-center"
-                      title={isRunning ? "Pause" : "Start"}
+                      disabled={timeLeft === 0}
+                      className="px-6 py-2 rounded-full bg-white text-purple-600 hover:bg-purple-100 disabled:opacity-50 transition-colors shadow-lg active:scale-95 transform flex items-center justify-center gap-1.5 text-xs font-black uppercase tracking-wider"
                     >
                       {isRunning ? <Pause size={12} className="fill-purple-600" /> : <Play size={12} className="fill-purple-600 ml-0.5" />}
+                      {isRunning ? "Pause" : "Start"}
                     </button>
                     <button
                       onClick={(e) => {
@@ -1033,14 +1236,14 @@ export default function Index() {
                       <RotateCcw size={12} />
                     </button>
                   </div>
-                </div>
 
-                {/* Progress bar / Countdown animation */}
-                <div className="relative z-10 w-full bg-white/10 rounded-full h-1 overflow-hidden mt-1">
-                  <div
-                    className="bg-white h-full rounded-full transition-all duration-1000 ease-linear shadow-glow"
-                    style={{ width: `${(timeLeft / 1500) * 100}%` }}
-                  />
+                  {/* Progress bar */}
+                  <div className="w-full bg-white/10 rounded-full h-1 overflow-hidden">
+                    <div
+                      className="bg-white h-full rounded-full transition-all duration-1000 ease-linear shadow-glow"
+                      style={{ width: `${totalDuration > 0 ? (timeLeft / totalDuration) * 100 : 0}%` }}
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -1238,7 +1441,15 @@ export default function Index() {
                       <div className="flex gap-4 py-1 min-h-[140px]">
                         {activeCategory && recommendationsByCategory[activeCategory]?.length > 0 ? (
                           recommendationsByCategory[activeCategory].slice(0, 2).map((movie) => (
-                            <div key={movie.id} className="flex-1 flex flex-col gap-2 group/item">
+                            <div
+                              key={movie.id}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setSelectedMovieId(movie.id);
+                              }}
+                              className="flex-1 flex flex-col gap-2 group/item cursor-pointer"
+                            >
                               <div className="relative aspect-[2/3] w-full rounded-xl overflow-hidden border border-white/10 shadow bg-slate-900 group-hover/item:border-white/30 transition-all">
                                 <img
                                   src={getPosterUrl(movie.poster_path)}
@@ -1295,6 +1506,12 @@ export default function Index() {
           </div>
         </div>
       )}
+
+      {/* Movie Details Modal Overlay */}
+      <MovieDetailsModal
+        movieId={selectedMovieId}
+        onClose={() => setSelectedMovieId(null)}
+      />
     </div>
   );
 }

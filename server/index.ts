@@ -4,7 +4,7 @@ import cors from "cors";
 import { handleDemo } from "./routes/demo";
 import { handleWeather } from "./routes/weather";
 import { handleNews } from "./routes/news";
-import { handleRecommendations, handleSearchMovies } from "./routes/movies";
+import { handleRecommendations, handleSearchMovies, handleMovieDetails } from "./routes/movies";
 
 export function createServer() {
   const app = express();
@@ -25,6 +25,7 @@ export function createServer() {
   app.get("/api/news", handleNews);
   app.get("/api/movies/recommendations", handleRecommendations);
   app.get("/api/movies/search", handleSearchMovies);
+  app.get("/api/movies/details", handleMovieDetails);
 
   return app;
 }

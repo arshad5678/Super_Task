@@ -2,16 +2,17 @@ import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Search, Star, Film, RefreshCw } from "lucide-react";
 import { searchMovies, getPosterUrl, type Movie } from "@/services/movieApi";
+import MovieDetailsModal from "@/components/MovieDetailsModal";
 
 const GENRES = [
   { id: 28, name: "Action" },
   { id: 35, name: "Comedy" },
   { id: 18, name: "Drama" },
-  { id: 27, name: "Horror" },
-  { id: 878, name: "Sci-Fi" },
-  { id: 99, name: "Documentary" },
-  { id: 10749, name: "Romance" },
+  { id: 10402, name: "Music" },
+  { id: 10770, name: "Sports" },
+  { id: 53, name: "Thriller" },
   { id: 14, name: "Fantasy" },
+  { id: 10749, name: "Romance" },
 ];
 
 export default function Movies() {
@@ -20,6 +21,7 @@ export default function Movies() {
   const [movies, setMovies] = useState<Movie[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedMovieId, setSelectedMovieId] = useState<number | null>(null);
 
   const loadMovies = useCallback(async () => {
     setLoading(true);
@@ -145,6 +147,7 @@ export default function Movies() {
               {movies.map((movie) => (
                 <div
                   key={movie.id}
+                  onClick={() => setSelectedMovieId(movie.id)}
                   className="group flex flex-col gap-3 cursor-pointer"
                 >
                   {/* Poster Wrapper */}
@@ -178,6 +181,12 @@ export default function Movies() {
           )
         )}
       </div>
+      
+      {/* Movie Details Modal Overlay */}
+      <MovieDetailsModal
+        movieId={selectedMovieId}
+        onClose={() => setSelectedMovieId(null)}
+      />
     </div>
   );
 }

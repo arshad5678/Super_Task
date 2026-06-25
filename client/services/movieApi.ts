@@ -7,6 +7,18 @@ export interface Movie {
   genre_ids: number[];
 }
 
+export interface MovieDetail {
+  id: number;
+  title: string;
+  vote_average: number;
+  release_date: string;
+  poster_path: string;
+  runtime: number;
+  genres: string[];
+  plot: string;
+  cast: string[];
+}
+
 const RECOMMENDATIONS_CACHE_KEY = "superapp_cached_movie_recommendations";
 
 export async function fetchMovieRecommendations(genres: string[]): Promise<Movie[]> {
@@ -28,6 +40,15 @@ export async function searchMovies(query: string, genreId?: number | null): Prom
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.error || "Failed to search movies");
+  }
+  return response.json();
+}
+
+export async function fetchMovieDetails(id: number): Promise<MovieDetail> {
+  const response = await fetch(`/api/movies/details?id=${id}`);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || "Failed to fetch movie details");
   }
   return response.json();
 }
