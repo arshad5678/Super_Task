@@ -1,4 +1,5 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createServer } from "./index";
 import * as express from "express";
 
@@ -7,7 +8,8 @@ const rawPort = process.env.PORT;
 const port = (rawPort && !isNaN(Number(rawPort))) ? Number(rawPort) : 3000;
 
 // In production, serve the built SPA files
-const __dirname = import.meta.dirname;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const distPath = path.join(__dirname, "../spa");
 
 // Serve static files
